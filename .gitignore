@@ -22,3 +22,6 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 .vscode/
+backend/config/database.php
+# Private database backup
+/database/c5_cyclehub.sql
