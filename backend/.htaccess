@@ -1,0 +1,6 @@
+Options -Indexes
+
+# Do not expose configuration, SQL dumps, or environment files.
+<FilesMatch "^(config\.php|config\.example\.php|database\.php|.*\.(sql|env|ini|log))$">
+  Require all denied
+</FilesMatch>
