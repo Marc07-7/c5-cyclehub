@@ -1,3 +1,4 @@
+
 import 'dotenv/config';
 import express from 'express';
 import http from 'node:http';
@@ -69,17 +70,17 @@ if (pushEnabled) {
 // MYSQL SESSION STORE
 const MySQLStore = MySQLStoreFactory(session);
 
-const sessionStore = new MySQLStore({
-  host: process.env.DB_HOST,
-  port: Number(process.env.DB_PORT || 3306),
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
-  createDatabaseTable: true,
-  schema: {
-    tableName: 'user_sessions'
-  }
-});
+// Reuse the application's existing mysql2 pool so the session store
+// uses the same TiDB Cloud TLS/SSL connection configuration as the API.
+const sessionStore = new MySQLStore(
+  {
+    createDatabaseTable: true,
+    schema: {
+      tableName: 'user_sessions'
+    }
+  },
+  pool
+);
 
 const sessionMiddleware = session({
   name: 'c5cyclehub.sid',
@@ -360,8 +361,8 @@ async function sendPushToUser(userId, title, body) {
     );
 
     console.log(
-  `Found ${subscriptions.length} push subscription(s) for user ${userId}.`
-);
+      `Found ${subscriptions.length} push subscription(s) for user ${userId}.`
+    );
 
     const payload = JSON.stringify({
       title: String(title || 'C5 CycleHub'),
@@ -481,7 +482,7 @@ api.post('/push/subscribe', requireUser, async (req, res, next) => {
 
   try {
     const subscription =
-  req.body?.subscription || req.body;
+      req.body?.subscription || req.body;
 
     const endpoint = String(
       subscription?.endpoint || ''
@@ -524,17 +525,17 @@ api.post('/push/subscribe', requireUser, async (req, res, next) => {
 
     const userId = Number(req.session.user.id);
 
-  // Register this browser endpoint for the currently authenticated account.
+    // Register this browser endpoint for the currently authenticated account.
     await pool.query(
-  `INSERT INTO push_subscriptions
-    (user_id, endpoint, endpoint_hash, p256dh, auth)
-   VALUES (?, ?, UNHEX(SHA2(?, 256)), ?, ?)
-   ON DUPLICATE KEY UPDATE
-     p256dh = VALUES(p256dh),
-     auth = VALUES(auth),
-     updated_at = CURRENT_TIMESTAMP`,
-  [userId, endpoint, endpoint, p256dh, auth]
-);
+      `INSERT INTO push_subscriptions
+        (user_id, endpoint, endpoint_hash, p256dh, auth)
+       VALUES (?, ?, UNHEX(SHA2(?, 256)), ?, ?)
+       ON DUPLICATE KEY UPDATE
+         p256dh = VALUES(p256dh),
+         auth = VALUES(auth),
+         updated_at = CURRENT_TIMESTAMP`,
+      [userId, endpoint, endpoint, p256dh, auth]
+    );
 
     ok(
       res,
@@ -1204,20 +1205,22 @@ api.post('/orders', requireUser, async (req, res, next) => {
       );
     }
 
-   await conn.commit() ;
+    await conn.commit();
     transactionStarted = false;
-// Send browser push only after the order is committed.
-for (const admin of admins) {
-  void sendPushToUser(
-    admin.id,
-    'New Order Received',
-    `${req.session.user.name} placed Order #${orderResult.insertId} worth ₱${total.toFixed(2)}.`
-  );
-}
 
-console.log(
-  `Order #${orderResult.insertId} committed. Admin push notifications triggered.`
-);
+    // Send browser push only after the order is committed.
+    for (const admin of admins) {
+      void sendPushToUser(
+        admin.id,
+        'New Order Received',
+        `${req.session.user.name} placed Order #${orderResult.insertId} worth ₱${total.toFixed(2)}.`
+      );
+    }
+
+    console.log(
+      `Order #${orderResult.insertId} committed. Admin push notifications triggered.`
+    );
+
     return ok(
       res,
       {

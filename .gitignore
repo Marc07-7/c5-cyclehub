@@ -24,4 +24,5 @@ Thumbs.db
 .vscode/
 backend/config/database.php
 # Private database backup
-/database/c5_cyclehub.sql
+/database/c5_cyclehub.sqlbackend-node/.env
+backend-node/certs/
