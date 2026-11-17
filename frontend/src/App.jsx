@@ -21,6 +21,8 @@ import {
   Archive,
   Bell,
   CheckCheck,
+  Heart,
+  Menu,
   X
 } from 'lucide-react'
 
@@ -52,6 +54,9 @@ export default function App() {
   const [user, setUser] = useState(null)
   const [pushEnabled, setPushEnabled] = useState(false)
   const [pushBusy, setPushBusy] = useState(false)
+  const [wishlist, setWishlist] = useState([])
+  const [wishlistLoading, setWishlistLoading] = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
   const [cart, setCart] = useState([])
   const [cartOwner, setCartOwner] = useState(null)
@@ -234,6 +239,14 @@ export default function App() {
   useEffect(() => {
     refreshPendingOrders()
   }, [user?.id])
+
+  useEffect(() => {
+  if (user?.id) {
+    loadWishlist()
+  } else {
+    setWishlist([])
+  }
+}, [user?.id])
 
   // Retry queued orders when internet connection returns.
   useEffect(() => {
@@ -560,6 +573,100 @@ export default function App() {
     flash('Added to cart')
   }
 
+
+  // LOAD THE LOGGED-IN CUSTOMER'S WISHLIST
+  async function loadWishlist() {
+    if (!user?.id) {
+      setWishlist([])
+      return
+    }
+
+    setWishlistLoading(true)
+
+    try {
+      const result = await request('wishlist')
+      setWishlist(result.data || [])
+    } catch (error) {
+      flash(error.message || 'Unable to load wishlist.')
+    } finally {
+      setWishlistLoading(false)
+    }
+  }
+
+  // CHECK IF A PRODUCT IS SAVED
+  function isWishlisted(productId) {
+    return wishlist.some(
+      item => Number(item.id) === Number(productId)
+    )
+  }
+
+  // ADD OR REMOVE A PRODUCT FROM WISHLIST
+  async function toggleWishlist(product) {
+    if (!user?.id) {
+      setView('account')
+      flash('Please sign in to save products to your wishlist.')
+      return
+    }
+
+    const alreadySaved = isWishlisted(product.id)
+
+    try {
+      if (alreadySaved) {
+        await request(`wishlist/${product.id}`, {
+          method: 'DELETE'
+        })
+
+        setWishlist(old =>
+          old.filter(item => Number(item.id) !== Number(product.id))
+        )
+
+        flash('Removed from wishlist.')
+      } else {
+        await request('wishlist', {
+          method: 'POST',
+          body: JSON.stringify({
+            product_id: product.id
+          })
+        })
+
+        await loadWishlist()
+        flash('Added to wishlist!')
+      }
+    } catch (error) {
+      flash(error.message || 'Wishlist update failed.')
+    }
+  }
+
+  // OPEN WISHLIST PAGE
+  async function openWishlist() {
+    if (!user?.id) {
+      setView('account')
+      flash('Please sign in to view your wishlist.')
+      return
+    }
+
+    await loadWishlist()
+    setView('wishlist')
+  }
+
+  // REMOVE A SAVED PRODUCT
+  async function removeFromWishlist(productId) {
+    try {
+      await request(`wishlist/${productId}`, {
+        method: 'DELETE'
+      })
+
+      setWishlist(old =>
+        old.filter(item => Number(item.id) !== Number(productId))
+      )
+
+      flash('Product removed from wishlist.')
+    } catch (error) {
+      flash(error.message || 'Unable to remove product.')
+    }
+  }
+
+
   const total = cart.reduce(
     (s, p) => s + Number(p.price) * p.quantity,
     0
@@ -856,9 +963,32 @@ export default function App() {
     }
   }
 
+  
+
   return (
     <div className="app">
 
+      
+     {/* C5 CYCLEHUB STARTUP ANIMATION */}
+    <div className="bike-splash" aria-hidden="true">
+      <div className="bike-splash-brand">
+        C5 CYCLEHUB
+        <span>RIDE YOUR WAY</span>
+      </div>
+
+      {/* Loading trail */}
+<div className="bike-splash-track">
+  <div className="bike-splash-progress" />
+</div>
+
+      <div className="bike-splash-rider">
+        <Bike size={76} strokeWidth={1.8} />
+      </div>
+
+      <div className="bike-splash-tagline">
+        GEAR UP. GO FURTHER.
+      </div>
+    </div>
       {/* HEADER */}
       <header className="topbar">
 
@@ -876,21 +1006,56 @@ export default function App() {
           </span>
         </a>
 
-        <nav>
-          <button onClick={() => setView('shop')}>
-            Shop
-          </button>
 
-          <button onClick={openOrders}>
-            My Orders
-          </button>
+      
 
-          {user?.role === 'admin' && (
-            <button onClick={openAdmin}>
-              Admin
-            </button>
-          )}
-        </nav>
+        <button
+  type="button"
+  className="mobile-menu-toggle"
+  aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
+  aria-expanded={mobileMenuOpen}
+  onClick={() => setMobileMenuOpen(prev => !prev)}
+>
+  {mobileMenuOpen ? <X size={22} /> : <Menu size={22} />}
+</button>
+
+<nav className={`main-navigation ${mobileMenuOpen ? 'open' : ''}`}>
+  <button onClick={() => {
+    setView('shop')
+    setMobileMenuOpen(false)
+  }}>
+    Shop
+  </button>
+
+  {user && (
+    <button
+      className="wishlist-nav-link"
+      onClick={() => {
+        setMobileMenuOpen(false)
+        openWishlist()
+      }}
+    >
+      <Heart size={17} />
+      Wishlist ({wishlist.length})
+    </button>
+  )}
+
+  <button onClick={() => {
+    setMobileMenuOpen(false)
+    openOrders()
+  }}>
+    My Orders
+  </button>
+
+  {user?.role === 'admin' && (
+    <button onClick={() => {
+      setMobileMenuOpen(false)
+      openAdmin()
+    }}>
+      Admin
+    </button>
+  )}
+</nav>
 
         <div className="head-actions">
 
@@ -1191,6 +1356,27 @@ export default function App() {
 
                   <div className="product-image">
 
+                    <button
+  type="button"
+  className={`wishlist-heart ${isWishlisted(p.id) ? 'active' : ''}`}
+  onClick={() => toggleWishlist(p)}
+  aria-label={
+    isWishlisted(p.id)
+      ? 'Remove from wishlist'
+      : 'Add to wishlist'
+  }
+  title={
+    isWishlisted(p.id)
+      ? 'Remove from wishlist'
+      : 'Add to wishlist'
+  }
+>
+  <Heart
+    size={20}
+    fill={isWishlisted(p.id) ? 'currentColor' : 'none'}
+  />
+</button>
+
                     {p.image_url ? (
                       <img src={p.image_url} alt={p.name} />
                     ) : (
@@ -1250,6 +1436,100 @@ export default function App() {
           </main>
         </>
       )}
+
+
+
+  {/* WISHLIST PAGE */}
+  {view === 'wishlist' && (
+    <main className="shop-main">
+      <div className="section-head">
+        <div>
+          <span className="eyebrow">YOUR SAVED ITEMS</span>
+          <h2>My Wishlist</h2>
+          <p>Products you would love to have.</p>
+        </div>
+
+        <button
+          className="secondary"
+          type="button"
+          onClick={() => setView('shop')}
+        >
+          Continue Shopping
+        </button>
+      </div>
+
+      {wishlistLoading ? (
+        <div className="empty">Loading your wishlist...</div>
+      ) : wishlist.length === 0 ? (
+        <div className="empty">
+          <Heart size={38} />
+          <h3>Your wishlist is empty</h3>
+          <p>Save products you like and find them here later.</p>
+          <button
+            className="primary"
+            type="button"
+            onClick={() => setView('shop')}
+          >
+            Explore Products
+          </button>
+        </div>
+      ) : (
+        <div className="products">
+          {wishlist.map(p => (
+            <article className="product" key={p.id}>
+              <div className="product-image">
+                {p.image_url ? (
+                  <img src={p.image_url} alt={p.name} />
+                ) : (
+                  <Bike size={76} />
+                )}
+
+                <span>{p.category_name || 'C5 Gear'}</span>
+              </div>
+
+              <div className="product-info">
+                <h3>{p.name}</h3>
+
+                <p>
+                  {p.description || 'Quality cycling product from C5 CycleHub.'}
+                </p>
+
+                <div className="product-bottom">
+                  <strong>{money(p.price)}</strong>
+
+                  <button
+                    className="add"
+                    type="button"
+                    disabled={Number(p.stock) < 1}
+                    onClick={() => addCart(p)}
+                    title="Add to cart"
+                  >
+                    <Plus size={17} />
+                  </button>
+                </div>
+
+                <small>
+                  {Number(p.stock) > 0
+                    ? `${p.stock} in stock`
+                    : 'Out of stock'}
+                </small>
+
+                <button
+                  type="button"
+                  className="wishlist-remove"
+                  onClick={() => removeFromWishlist(p.id)}
+                >
+                  <Trash2 size={15} />
+                  Remove from Wishlist
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </main>
+  )}
+
 
       {/* ACCOUNT PAGE */}
       {view === 'account' && (
@@ -2224,7 +2504,1149 @@ export default function App() {
             align-items: flex-start;
             flex-direction: column;
           }
+
+          .wishlist-heart {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 5;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 50%;
+  background: #ffffff;
+  color: #64748b;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, .12);
+  cursor: pointer;
+  transition: .2s ease;
+}
+
+.wishlist-heart:hover {
+  color: #ef4444;
+  transform: scale(1.08);
+}
+
+.wishlist-heart.active {
+  color: #ef4444;
+  background: #fff1f2;
+}
+
+.wishlist-remove {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 12px;
+  padding: 8px 12px;
+  border: 1px solid #fecaca;
+  border-radius: 9px;
+  background: #fff;
+  color: #dc2626;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.wishlist-remove:hover {
+  background: #fff1f2;
+}       
+  .product-image {
+  position: relative;
+}
         }
+
+
+/* =========================================
+   WISHLIST BUTTON POSITIONING
+========================================= */
+
+.product-image {
+  position: relative !important;
+  overflow: hidden;
+}
+
+.product-image .wishlist-heart {
+  position: absolute !important;
+  top: 14px !important;
+  right: 14px !important;
+  left: auto !important;
+  bottom: auto !important;
+  z-index: 10 !important;
+
+  width: 42px !important;
+  height: 42px !important;
+  padding: 0 !important;
+
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+
+  border: 1px solid #e5e7eb !important;
+  border-radius: 50% !important;
+  background: #ffffff !important;
+  color: #64748b !important;
+
+  box-shadow: 0 3px 12px rgba(0, 0, 0, .12) !important;
+  cursor: pointer;
+}
+
+.product-image .wishlist-heart:hover {
+  color: #ef4444 !important;
+  transform: scale(1.08);
+}
+
+.product-image .wishlist-heart.active {
+  color: #ef4444 !important;
+  background: #fff1f2 !important;
+}
+
+/* =========================================
+   HEADER NAVIGATION FIX
+========================================= */
+
+.topbar {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+
+.topbar .brand {
+  flex-shrink: 0 !important;
+}
+
+.topbar nav {
+  display: flex !important;
+  flex: 1 1 auto !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 18px !important;
+
+  min-width: 0 !important;
+  white-space: nowrap !important;
+}
+
+.topbar nav button {
+  flex-shrink: 0 !important;
+  white-space: nowrap !important;
+}
+
+.topbar .head-actions {
+  display: flex !important;
+  flex: 0 0 auto !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  gap: 10px !important;
+}
+
+/* =========================================
+   RESPONSIVE HEADER
+========================================= */
+
+@media (max-width: 1050px) {
+  .topbar {
+    gap: 12px !important;
+  }
+
+  .topbar nav {
+    gap: 9px !important;
+  }
+
+  .topbar .head-actions {
+    gap: 6px !important;
+  }
+}
+
+@media (max-width: 760px) {
+  .topbar {
+    flex-wrap: wrap !important;
+    justify-content: space-between !important;
+  }
+
+  .topbar nav {
+    order: 3;
+    flex: 1 0 100% !important;
+    justify-content: flex-start !important;
+    overflow-x: auto;
+    padding-bottom: 5px;
+  }
+
+  .topbar .head-actions {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+}
+
+
+/* =====================================
+   RESPONSIVE HAMBURGER NAVIGATION
+===================================== */
+
+.mobile-menu-toggle {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .topbar {
+    position: relative;
+    flex-wrap: wrap !important;
+  }
+
+  .mobile-menu-toggle {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 42px;
+    border: 1px solid rgba(255,255,255,.15);
+    border-radius: 10px;
+    background: #252a2b;
+    color: white;
+    cursor: pointer;
+  }
+
+  .topbar nav.main-navigation {
+    display: none !important;
+    order: 4;
+    flex: 1 0 100%;
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    padding: 12px;
+    margin-top: 8px;
+    background: #252a2b;
+    border-radius: 12px;
+  }
+
+  .topbar nav.main-navigation.open {
+    display: flex !important;
+  }
+
+
+/* Smooth mobile menu animation */
+@media (max-width: 760px) {
+  .topbar nav.main-navigation {
+    display: flex !important;
+    flex: 1 0 100%;
+    flex-direction: column;
+    align-items: stretch;
+
+    max-height: 0;
+    opacity: 0;
+    visibility: hidden;
+    overflow: hidden;
+
+    padding: 0 12px;
+    margin-top: 0;
+    border: 1px solid transparent;
+    border-radius: 14px;
+
+    transform: translateY(-10px);
+
+    transition:
+      max-height .35s ease,
+      opacity .25s ease,
+      transform .3s ease,
+      padding .3s ease,
+      margin .3s ease,
+      visibility .3s;
+  }
+
+  .topbar nav.main-navigation.open {
+    max-height: 320px;
+    opacity: 1;
+    visibility: visible;
+
+    padding: 12px;
+    margin-top: 8px;
+
+    border-color: rgba(255,255,255,.10);
+
+    transform: translateY(0);
+  }
+
+  .topbar nav.main-navigation button {
+    transition:
+      background .2s ease,
+      color .2s ease,
+      transform .2s ease;
+  }
+
+  .topbar nav.main-navigation button:active {
+    transform: scale(.97);
+  }
+}
+
+.mobile-menu-toggle {
+  transition:
+    background .25s ease,
+    transform .25s ease,
+    border-color .25s ease;
+}
+
+.mobile-menu-toggle:hover {
+  background: #343c3c;
+  border-color: #c3f45b;
+}
+
+.mobile-menu-toggle:active {
+  transform: scale(.90);
+}
+
+@keyframes wishlistPop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.3); }
+  70% { transform: scale(.9); }
+  100% { transform: scale(1); }
+}
+
+.product-image .wishlist-heart.active svg {
+  animation: wishlistPop .35s ease;
+}
+
+.product {
+  transition:
+    transform .3s ease,
+    box-shadow .3s ease,
+    border-color .3s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .product:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 14px 35px rgba(0,0,0,.09);
+  }
+}
+
+
+@keyframes pageFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.hero,
+.shop-main {
+  animation: pageFadeIn .5s ease both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+  .topbar nav.main-navigation button {
+    display: flex;
+    width: 100%;
+    min-height: 44px;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+    padding: 10px 12px;
+    color: white;
+    text-align: left;
+  }
+}
+
+/* =====================================
+   PHONE LAYOUT
+===================================== */
+
+@media (max-width: 760px) {
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 10px !important;
+    padding: 12px 16px !important;
+  }
+
+  .topbar .brand {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .mobile-menu-toggle {
+    display: inline-flex !important;
+    order: 2;
+  }
+
+  .main-navigation {
+    display: none !important;
+    order: 4;
+    flex: 1 0 100%;
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch !important;
+    gap: 5px !important;
+    padding: 12px;
+    margin-top: 5px;
+    border: 1px solid rgba(255,255,255,.10);
+    border-radius: 14px;
+    background: #222829;
+  }
+
+  .main-navigation.open {
+    display: flex !important;
+  }
+
+  .main-navigation > button {
+    width: 100%;
+    min-height: 44px;
+    justify-content: flex-start !important;
+    padding: 10px 12px !important;
+    border-radius: 9px;
+    text-align: left;
+  }
+
+  .main-navigation > button:hover {
+    background: rgba(255,255,255,.08);
+  }
+
+  .main-navigation .wishlist-nav-link {
+    justify-content: flex-start !important;
+  }
+
+  .topbar .head-actions {
+    order: 3;
+    flex: 1 0 100% !important;
+    width: 100%;
+    max-width: 100%;
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px !important;
+    overflow-x: auto;
+    padding: 3px 0;
+    scrollbar-width: none;
+  }
+
+  .topbar .head-actions::-webkit-scrollbar {
+    display: none;
+  }
+
+  .topbar .head-actions > * {
+    flex-shrink: 0;
+  }
+}
+
+/* Small phones */
+@media (max-width: 420px) {
+  .topbar {
+    padding: 10px 12px !important;
+  }
+
+  .topbar .brand {
+    font-size: 14px;
+  }
+
+  .mobile-menu-toggle {
+    width: 40px;
+    height: 40px;
+  }
+}
+
+/* Align Wishlist icon and text in navigation */
+.topbar .main-navigation .wishlist-nav-link {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+  line-height: 1 !important;
+  white-space: nowrap !important;
+  vertical-align: middle !important;
+}
+
+.topbar .main-navigation .wishlist-nav-link svg {
+  display: block !important;
+  width: 18px !important;
+  height: 18px !important;
+  flex: 0 0 18px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  vertical-align: middle !important;
+}
+
+
+/* ==========================================
+   UNIVERSAL HAMBURGER NAVIGATION
+   DESKTOP + MOBILE
+========================================== */
+
+.topbar {
+  position: relative;
+}
+
+/* Hamburger button */
+.mobile-menu-toggle {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+
+  width: 44px;
+  height: 44px;
+
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 12px;
+
+  background: #252a2b;
+  color: #ffffff;
+  cursor: pointer;
+
+  transition:
+    background .2s ease,
+    border-color .2s ease,
+    transform .2s ease;
+}
+
+.mobile-menu-toggle:hover {
+  background: #343c3c;
+  border-color: #c3f45b;
+}
+
+.mobile-menu-toggle:active {
+  transform: scale(.93);
+}
+
+/* Navigation dropdown */
+.topbar nav.main-navigation {
+  position: absolute;
+  top: calc(100% + 12px);
+  left: 24px;
+
+  z-index: 110;
+
+  display: flex !important;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 5px;
+
+  width: 250px;
+  max-height: 0;
+
+  padding: 0 10px;
+  margin: 0;
+
+  overflow: hidden;
+  visibility: hidden;
+  opacity: 0;
+
+  border: 1px solid transparent;
+  border-radius: 15px;
+
+  background: #202727;
+  box-shadow: 0 15px 40px rgba(0,0,0,.25);
+
+  transform: translateY(-10px);
+
+  transition:
+    max-height .35s ease,
+    opacity .25s ease,
+    transform .25s ease,
+    padding .25s ease,
+    visibility .25s ease;
+}
+
+/* Open state */
+.topbar nav.main-navigation.open {
+  max-height: 350px;
+  padding: 12px 10px;
+
+  visibility: visible;
+  opacity: 1;
+
+  border-color: rgba(255,255,255,.10);
+
+  transform: translateY(0);
+}
+
+/* Menu items */
+.topbar nav.main-navigation button {
+  display: flex !important;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+
+  width: 100%;
+  min-height: 44px;
+
+  padding: 10px 12px;
+
+  border: 0;
+  border-radius: 9px;
+
+  background: transparent;
+  color: #ffffff;
+
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+
+  transition:
+    background .2s ease,
+    color .2s ease;
+}
+
+.topbar nav.main-navigation button:hover {
+  background: rgba(195,244,91,.12);
+  color: #c3f45b;
+}
+
+/* Wishlist icon alignment */
+.topbar nav.main-navigation .wishlist-nav-link {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.topbar nav.main-navigation .wishlist-nav-link svg {
+  display: block;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+
+/* Mobile positioning */
+@media (max-width: 760px) {
+  .topbar nav.main-navigation {
+    left: 12px;
+    right: 12px;
+    width: auto;
+    top: calc(100% + 8px);
+  }
+}
+
+/* Desktop positioning */
+@media (min-width: 761px) {
+  .topbar nav.main-navigation {
+    left: 185px;
+    width: 260px;
+  }
+}
+
+
+/* Fix Wishlist alignment inside hamburger dropdown */
+.topbar nav.main-navigation .wishlist-nav-link {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+
+  width: 100% !important;
+  min-height: 44px !important;
+
+  padding: 10px 12px !important;
+  margin: 0 !important;
+
+  gap: 10px !important;
+  text-align: left !important;
+  line-height: 1.2 !important;
+}
+
+.topbar nav.main-navigation .wishlist-nav-link svg {
+  display: block !important;
+  flex: 0 0 18px !important;
+
+  width: 18px !important;
+  height: 18px !important;
+
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.topbar nav.main-navigation .wishlist-nav-link span {
+  display: inline-block;
+  text-align: left;
+}
+
+
+/* =========================================
+   C5 HERO BICYCLE — RIDING ENTRANCE
+========================================= */
+
+/* Keep the bicycle illustration visible */
+.hero-art {
+  overflow: hidden;
+  animation: hero-float 7s ease-in-out infinite;
+}
+
+/* Bicycle rides into position when the page loads */
+.hero-art > svg {
+  position: relative;
+  z-index: 2;
+  animation:
+    bike-ride-in 1.25s cubic-bezier(.16, 1, .3, 1) both,
+    bike-cruise 2.8s ease-in-out 1.25s infinite;
+  filter: drop-shadow(0 12px 18px rgba(198, 243, 107, .22));
+}
+
+/* Moving speed lines behind the bicycle */
+.hero-art::before {
+  content: "";
+  position: absolute;
+  left: 8%;
+  top: 43%;
+  width: 38%;
+  height: 3px;
+  border-radius: 10px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    #c6f36b,
+    transparent
+  );
+  opacity: 0;
+  animation: bike-speed-lines 1.1s ease-out .2s both;
+}
+
+.hero-art::after {
+  content: "";
+  position: absolute;
+  left: 14%;
+  top: 53%;
+  width: 25%;
+  height: 2px;
+  border-radius: 10px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    #c6f36b99,
+    transparent
+  );
+  opacity: 0;
+  animation: bike-speed-lines 1s ease-out .4s both;
+}
+
+/* Riding entrance */
+@keyframes bike-ride-in {
+  0% {
+    opacity: 0;
+    transform: translateX(-85px) rotate(-8deg) scale(.82);
+  }
+
+  65% {
+    opacity: 1;
+    transform: translateX(12px) rotate(3deg) scale(1.04);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateX(0) rotate(0) scale(1);
+  }
+}
+
+/* Gentle cycling movement after entrance */
+@keyframes bike-cruise {
+  0%, 100% {
+    transform: translateY(0) rotate(0);
+  }
+
+  50% {
+    transform: translateY(-6px) rotate(-1deg);
+  }
+}
+
+/* Speed-line entrance */
+@keyframes bike-speed-lines {
+  0% {
+    opacity: 0;
+    transform: translateX(-35px);
+  }
+
+  35% {
+    opacity: .8;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateX(55px);
+  }
+}
+
+/* Accessibility */
+@media (prefers-reduced-motion: reduce) {
+  .hero-art,
+  .hero-art > svg,
+  .hero-art::before,
+  .hero-art::after {
+    animation: none !important;
+  }
+}
+
+
+/* =========================================
+   MOBILE HERO BICYCLE ANIMATION
+========================================= */
+
+@media (max-width: 650px) {
+  .hero {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 25px;
+  }
+
+  .hero-art {
+    display: grid !important;
+    width: min(100%, 320px);
+    max-width: 100%;
+    height: 210px;
+    align-self: center;
+    margin: 8px auto 12px;
+    transform: none;
+  }
+
+  .hero-art > svg {
+    width: 155px;
+    height: 155px;
+  }
+
+  .art-label {
+    bottom: 17px;
+    font-size: 9px;
+    letter-spacing: 2px;
+  }
+}
+
+@media (max-width: 380px) {
+  .hero-art {
+    width: 250px;
+    height: 180px;
+  }
+
+  .hero-art > svg {
+    width: 130px;
+    height: 130px;
+  }
+}
+
+/* =========================================
+   COMPACT MOBILE HERO — TWO COLUMN LAYOUT
+========================================= */
+
+@media (max-width: 650px) {
+  .hero {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) 105px !important;
+    align-items: center !important;
+    gap: 8px !important;
+    padding: 30px 14px !important;
+    min-height: 0 !important;
+  }
+
+  /* Hero text and button */
+  .hero > div:first-child {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .hero h1 {
+    font-size: clamp(29px, 8vw, 38px) !important;
+    line-height: .98 !important;
+    letter-spacing: -1.5px !important;
+  }
+
+  .hero p {
+    font-size: 11px !important;
+    line-height: 1.5 !important;
+  }
+
+  .hero button {
+    min-height: 38px !important;
+    padding: 9px 11px !important;
+    font-size: 10px !important;
+    white-space: nowrap;
+  }
+
+  /* Smaller bicycle illustration on the right */
+  .hero-art {
+    display: grid !important;
+    width: 105px !important;
+    height: 125px !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+    align-self: center !important;
+    justify-self: center !important;
+    overflow: visible !important;
+  }
+
+  .hero-art > svg {
+    width: 88px !important;
+    height: 88px !important;
+  }
+
+  .hero-art .art-label {
+    font-size: 6px !important;
+    letter-spacing: 1px !important;
+    bottom: 5px !important;
+    text-align: center;
+  }
+}
+
+/* Extra-small phones */
+@media (max-width: 360px) {
+  .hero {
+    grid-template-columns: minmax(0, 1fr) 85px !important;
+    gap: 5px !important;
+    padding: 25px 11px !important;
+  }
+
+  .hero-art {
+    width: 85px !important;
+    height: 110px !important;
+  }
+
+  .hero-art > svg {
+    width: 72px !important;
+    height: 72px !important;
+  }
+
+  .hero h1 {
+    font-size: 28px !important;
+  }
+}
+
+
+
+/* =========================================
+   C5 CYCLEHUB - BICYCLE LOADING ANIMATION
+========================================= */
+
+.bike-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: #172020;
+  color: #c6f36b;
+  pointer-events: none;
+
+  animation: splash-exit .65s ease-in 2.85s forwards;
+}
+
+/* BRAND */
+.bike-splash-brand {
+  position: absolute;
+  top: 42%;
+  left: 50%;
+  width: 100%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  font-size: clamp(24px, 4vw, 42px);
+  font-weight: 900;
+  letter-spacing: 3px;
+  opacity: 0;
+
+  animation: splash-brand-in .6s ease .25s forwards;
+}
+
+.bike-splash-brand span {
+  display: block;
+  margin-top: 8px;
+  font-size: 10px;
+  letter-spacing: 5px;
+  color: #aab6b0;
+}
+
+/* LOADING TRACK */
+.bike-splash-track {
+  position: absolute;
+  top: calc(57% + 38px);
+  left: 0;
+  width: 100%;
+  height: 4px;
+  background: rgba(198, 243, 107, .12);
+  overflow: hidden;
+}
+
+/* GLOWING TRAIL */
+
+.bike-splash-progress {
+  width: 0;
+  height: 100%;
+  background: #c6f36b;
+  box-shadow:
+    0 0 8px #c6f36b,
+    0 0 20px rgba(198, 243, 107, .8);
+
+  animation: bike-loading-progress 2.2s
+    cubic-bezier(.45,.05,.55,.95) .2s forwards;
+}
+
+/* MOVING BICYCLE */
+.bike-splash-rider {
+  position: absolute;
+  left: 0;
+  top: 57%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  filter: drop-shadow(0 0 15px rgba(198,243,107,.6));
+
+  animation: bicycle-cross-screen 2.2s
+    cubic-bezier(.45,.05,.55,.95) .2s both;
+}
+
+.bike-splash-rider svg {
+  color: #c6f36b;
+}
+
+/* TAGLINE */
+.bike-splash-tagline {
+  position: absolute;
+  top: 69%;
+  width: 100%;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  opacity: 0;
+
+  animation: splash-tagline-in .5s ease 1.6s forwards;
+}
+
+/* BIKE MOVEMENT */
+@keyframes bicycle-cross-screen {
+  0% {
+    transform: translateX(-120px) translateY(0);
+  }
+
+  25% {
+    transform: translateX(25vw) translateY(-8px);
+  }
+
+  50% {
+    transform: translateX(50vw) translateY(0);
+  }
+
+  75% {
+    transform: translateX(75vw) translateY(-7px);
+  }
+
+  100% {
+    transform: translateX(calc(100vw + 120px));
+  }
+}
+
+/* LOADING BAR PROGRESS */
+
+@keyframes bike-loading-progress {
+  0% {
+    width: 0;
+  }
+
+  25% {
+    width: calc(25vw - 110px);
+  }
+
+  50% {
+    width: calc(50vw + 10px);
+  }
+
+  75% {
+    width: calc(75vw + 3px);
+  }
+
+  100% {
+    width: 100vw;
+  }
+}
+
+
+/* BRAND ENTRANCE */
+@keyframes splash-brand-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -40%);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%);
+  }
+}
+
+/* TAGLINE ENTRANCE */
+@keyframes splash-tagline-in {
+  to {
+    opacity: 1;
+  }
+}
+
+/* WEBSITE REVEAL */
+@keyframes splash-exit {
+  to {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+/* MOBILE */
+@media (max-width: 650px) {
+  .bike-splash-rider svg {
+    width: 58px;
+    height: 58px;
+  }
+
+  .bike-splash-track {
+    top: calc(57% + 29px);
+    height: 3px;
+  }
+
+  .bike-splash-brand {
+    font-size: 25px;
+    letter-spacing: 2px;
+  }
+
+  .bike-splash-tagline {
+    font-size: 8px;
+    letter-spacing: 2px;
+  }
+}
+
+/* ACCESSIBILITY */
+@media (prefers-reduced-motion: reduce) {
+  .bike-splash,
+  .bike-splash-rider,
+  .bike-splash-brand,
+  .bike-splash-tagline,
+  .bike-splash-progress {
+    animation: none !important;
+  }
+
+  .bike-splash {
+    display: none !important;
+  }
+}
+
+
+
       `}</style>
 
       {/* FOOTER */}
